@@ -396,4 +396,4 @@ async def reply_btn_list(message: Message):
 async def reply_btn_total(message: Message):
     await cmd_total(message)
 
-@router.message(F.text.in_(["⚙️ Settings / Language", "⚙️ الإعداد
+@router.message(F.text.in_(["⚙️ Settings / Language", "⚙️ الإعداد"
