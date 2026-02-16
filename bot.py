@@ -1,402 +1,500 @@
-import asyncio
-import logging
+"""
+Subscription Manager Bot with Web3 Integration
+Supports Arabic and English languages
+"""
+
 import os
+import logging
 from datetime import datetime, timedelta
-from aiohttp import web  # <--- Added for Master Bot communication
-
-from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import (
-    Message, CallbackQuery,
-    InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup, KeyboardButton,
-    BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
 )
-from aiogram.filters import Command, StateFilter
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from database import Database
+from locales import get_text, set_user_language, get_user_language
 
-# Import the new function get_global_stats
-from database import (
-    init_db, get_user_language, set_user_language, ensure_user_exists,
-    add_subscription, get_user_subscriptions, delete_subscription,
-    get_due_subscriptions, get_past_due_subscriptions, update_next_payment_date,
-    get_global_stats 
-)
-from locales import t, TEXTS
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Use Environment Variable for security
-
+# Configure logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-    handlers=[logging.StreamHandler()]
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-CURRENCIES = ["USD", "SAR", "EGP", "AED", "KWD", "QAR", "BHD", "OMR", "JOD", "EUR", "GBP"]
 
-# ============================================================
-# FSM STATES & HELPERS (Keep your existing code logic)
-# ============================================================
-class AddSubscription(StatesGroup):
-    waiting_for_service_name = State()
-    waiting_for_cost = State()
-    waiting_for_currency = State()
-    waiting_for_billing_cycle = State()
-    waiting_for_payment_date = State()
+# Environment variables
+BOT_TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+ADMIN_IDS = list(map(int, os.getenv('ADMIN_IDS', '').split(','))) if os.getenv('ADMIN_IDS') else []
+WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://your-webapp-url.com')
+CRYPTO_WALLET_ADDRESS = os.getenv('WALLET_ADDRESS', 'YOUR_WALLET_ADDRESS')
 
-def build_reply_keyboard(lang: str) -> ReplyKeyboardMarkup:
-    buttons = [
-        [KeyboardButton(text=t(lang, "btn_add")), KeyboardButton(text=t(lang, "btn_list"))],
-        [KeyboardButton(text=t(lang, "btn_total")), KeyboardButton(text=t(lang, "btn_settings"))]
+db = Database()
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start command handler"""
+    user = update.effective_user
+    user_id = user.id
+    
+    # Register user in database
+    db.add_user(user_id, user.username, user.first_name, user.last_name)
+    
+    # Get user's language
+    lang = get_user_language(user_id)
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                get_text('language_ar', lang), 
+                callback_data='lang_ar'
+            ),
+            InlineKeyboardButton(
+                get_text('language_en', lang), 
+                callback_data='lang_en'
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                get_text('subscribe_btn', lang),
+                callback_data='subscribe'
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                get_text('my_subscription', lang),
+                callback_data='my_subscription'
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                get_text('open_webapp', lang),
+                web_app=WebAppInfo(url=WEBAPP_URL)
+            )
+        ]
     ]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        get_text('welcome', lang).format(name=user.first_name),
+        reply_markup=reply_markup
+    )
 
-def build_language_keyboard() -> InlineKeyboardMarkup:
-    buttons = [[InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang_en"),
-                InlineKeyboardButton(text="🇸🇦 العربية", callback_data="set_lang_ar")]]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def build_main_inline_keyboard(lang: str) -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(text=t(lang, "btn_add_inline"), callback_data="action_add"),
-         InlineKeyboardButton(text=t(lang, "btn_list_inline"), callback_data="action_list")],
-        [InlineKeyboardButton(text=t(lang, "btn_total_inline"), callback_data="action_total"),
-         InlineKeyboardButton(text=t(lang, "btn_delete_inline"), callback_data="action_delete")],
-        [InlineKeyboardButton(text=t(lang, "btn_help_inline"), callback_data="action_help")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def build_currency_keyboard() -> InlineKeyboardMarkup:
-    buttons = []
-    row = []
-    for currency in CURRENCIES:
-        row.append(InlineKeyboardButton(text=currency, callback_data=f"currency_{currency}"))
-        if len(row) == 3:
-            buttons.append(row)
-            row = []
-    if row: buttons.append(row)
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def build_billing_cycle_keyboard(lang: str) -> InlineKeyboardMarkup:
-    buttons = [[InlineKeyboardButton(text=t(lang, "cycle_monthly"), callback_data="cycle_monthly"),
-                InlineKeyboardButton(text=t(lang, "cycle_yearly"), callback_data="cycle_yearly")]]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def build_cancel_keyboard(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="action_cancel")]])
-
-def build_delete_keyboard(subs: list, lang: str) -> InlineKeyboardMarkup:
-    buttons = []
-    for sub in subs:
-        text = f"🗑 {sub['service_name']} — {sub['cost']} {sub['currency']}"
-        buttons.append([InlineKeyboardButton(text=text, callback_data=f"del_{sub['id']}")])
-    buttons.append([InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="action_back")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def build_confirm_delete_keyboard(sub_id: int, lang: str) -> InlineKeyboardMarkup:
-    buttons = [[InlineKeyboardButton(text=t(lang, "delete_yes"), callback_data=f"confirm_del_{sub_id}"),
-                InlineKeyboardButton(text=t(lang, "delete_no"), callback_data="action_delete")]]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def build_settings_keyboard(lang: str) -> InlineKeyboardMarkup:
-    if lang == "ar":
-        buttons = [[InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang_en"),
-                    InlineKeyboardButton(text="🇸🇦 العربية ✓", callback_data="set_lang_ar")]]
-    else:
-        buttons = [[InlineKeyboardButton(text="🇬🇧 English ✓", callback_data="set_lang_en"),
-                    InlineKeyboardButton(text="🇸🇦 العربية", callback_data="set_lang_ar")]]
-    buttons.append([InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="action_back")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-async def get_lang(user_id: int) -> str:
-    return await get_user_language(user_id)
-
-def format_subscription_card(sub: dict, index: int, lang: str) -> str:
-    cycle_text = t(lang, sub['billing_cycle'])
-    try:
-        payment_date = datetime.strptime(sub['next_payment_date'], "%Y-%m-%d")
-        days_left = (payment_date - datetime.now()).days
-        if days_left < 0: days_text = t(lang, "days_overdue")
-        elif days_left == 0: days_text = t(lang, "days_today")
-        elif days_left == 1: days_text = t(lang, "days_tomorrow")
-        elif days_left <= 3: days_text = t(lang, "days_soon").format(days_left)
-        elif days_left <= 7: days_text = t(lang, "days_week").format(days_left)
-        else: days_text = t(lang, "days_later").format(days_left)
-    except ValueError: days_text = "—"
-
-    return (f"┌─────────────────────\n│ <b>{index}. {sub['service_name']}</b>\n"
-            f"│ {t(lang, 'card_cost')}: <b>{sub['cost']} {sub['currency']}</b>\n"
-            f"│ {t(lang, 'card_cycle')}: {cycle_text}\n"
-            f"│ {t(lang, 'card_date')}: <code>{sub['next_payment_date']}</code>\n"
-            f"│ {t(lang, 'card_remaining')}: {days_text}\n└─────────────────────")
-
-# ============================================================
-# ROUTER & HANDLERS
-# ============================================================
-router = Router()
-
-async def ensure_language(message_or_callback, state: FSMContext = None):
-    user_id = message_or_callback.from_user.id
-    await ensure_user_exists(user_id)
-    return await get_lang(user_id)
-
-@router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
-    await state.clear()
-    lang = await ensure_language(message)
-    if lang is None:
-        await message.answer("🌐 <b>Choose your language / اختر اللغة:</b>", parse_mode="HTML", reply_markup=build_language_keyboard())
-    else:
-        await message.answer(t(lang, "welcome"), parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
-        await message.answer("👇", reply_markup=build_main_inline_keyboard(lang))
-
-@router.callback_query(F.data.startswith("set_lang_"))
-async def cb_set_language(callback: CallbackQuery, state: FSMContext):
-    lang = callback.data.replace("set_lang_", "")
-    await set_user_language(callback.from_user.id, lang)
-    await state.clear()
-    await callback.message.edit_text(t(lang, "language_set"), parse_mode="HTML")
-    await callback.message.answer(t(lang, "welcome"), parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
-    await callback.message.answer("👇", reply_markup=build_main_inline_keyboard(lang))
-    await callback.answer()
-
-@router.message(Command("help"))
-async def cmd_help(message: Message):
-    lang = await ensure_language(message) or "en"
-    await message.answer(t(lang, "help"), parse_mode="HTML", reply_markup=build_main_inline_keyboard(lang))
-
-@router.message(Command("cancel"))
-async def cmd_cancel(message: Message, state: FSMContext):
-    lang = await ensure_language(message) or "en"
-    if await state.get_state() is None:
-        await message.answer(t(lang, "cancel_none"), reply_markup=build_reply_keyboard(lang))
-        return
-    await state.clear()
-    await message.answer(t(lang, "cancel_ok"), parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
-
-@router.message(Command("language"))
-async def cmd_language(message: Message):
-    lang = await ensure_language(message) or "en"
-    await message.answer(t(lang, "settings_title"), parse_mode="HTML", reply_markup=build_settings_keyboard(lang))
-
-# Inline Actions
-@router.callback_query(F.data == "action_add")
-async def cb_add(callback: CallbackQuery, state: FSMContext):
-    lang = await get_lang(callback.from_user.id) or "en"
-    await state.set_state(AddSubscription.waiting_for_service_name)
-    await callback.message.edit_text(f"{t(lang, 'add_title')}\n\n{t(lang, 'add_step1')}", parse_mode="HTML", reply_markup=build_cancel_keyboard(lang))
-    await callback.answer()
-
-@router.callback_query(F.data == "action_list")
-async def cb_list(callback: CallbackQuery):
-    lang = await get_lang(callback.from_user.id) or "en"
-    await show_subscriptions(callback.message, callback.from_user.id, lang, edit=True)
-    await callback.answer()
-
-@router.callback_query(F.data == "action_total")
-async def cb_total(callback: CallbackQuery):
-    lang = await get_lang(callback.from_user.id) or "en"
-    await show_total(callback.message, callback.from_user.id, lang, edit=True)
-    await callback.answer()
-
-@router.callback_query(F.data == "action_delete")
-async def cb_delete(callback: CallbackQuery):
-    lang = await get_lang(callback.from_user.id) or "en"
-    await show_delete_menu(callback.message, callback.from_user.id, lang, edit=True)
-    await callback.answer()
-
-@router.callback_query(F.data == "action_help")
-async def cb_help(callback: CallbackQuery):
-    lang = await get_lang(callback.from_user.id) or "en"
-    await callback.message.edit_text(t(lang, "help"), parse_mode="HTML", reply_markup=build_main_inline_keyboard(lang))
-    await callback.answer()
-
-@router.callback_query(F.data == "action_back")
-@router.callback_query(F.data == "action_cancel")
-async def cb_reset(callback: CallbackQuery, state: FSMContext):
-    lang = await get_lang(callback.from_user.id) or "en"
-    await state.clear()
-    msg = t(lang, "welcome") if callback.data == "action_back" else t(lang, "cancel_ok")
-    await callback.message.edit_text(msg, parse_mode="HTML", reply_markup=build_main_inline_keyboard(lang))
-    await callback.answer()
-
-# FSM ADD FLOW
-@router.message(Command("add"))
-async def cmd_add(message: Message, state: FSMContext):
-    lang = await ensure_language(message) or "en"
-    await state.set_state(AddSubscription.waiting_for_service_name)
-    await message.answer(f"{t(lang, 'add_title')}\n\n{t(lang, 'add_step1')}", parse_mode="HTML", reply_markup=build_cancel_keyboard(lang))
-
-@router.message(StateFilter(AddSubscription.waiting_for_service_name))
-async def fsm_service_name(message: Message, state: FSMContext):
-    lang = await get_lang(message.from_user.id) or "en"
-    service_name = message.text.strip()
-    if not service_name or len(service_name) > 100:
-        await message.answer(t(lang, "add_error_name"), reply_markup=build_cancel_keyboard(lang))
-        return
-    await state.update_data(service_name=service_name)
-    await state.set_state(AddSubscription.waiting_for_cost)
-    await message.answer(t(lang, "add_step2_ok").format(service_name), parse_mode="HTML", reply_markup=build_cancel_keyboard(lang))
-
-@router.message(StateFilter(AddSubscription.waiting_for_cost))
-async def fsm_cost(message: Message, state: FSMContext):
-    lang = await get_lang(message.from_user.id) or "en"
-    try:
-        cost = float(message.text.strip().replace(",", "."))
-        if cost <= 0: raise ValueError
-    except (ValueError, TypeError):
-        await message.answer(t(lang, "add_error_cost"), reply_markup=build_cancel_keyboard(lang))
-        return
-    await state.update_data(cost=cost)
-    await state.set_state(AddSubscription.waiting_for_currency)
-    await message.answer(t(lang, "add_step3_ok").format(cost), parse_mode="HTML", reply_markup=build_currency_keyboard())
-
-@router.callback_query(StateFilter(AddSubscription.waiting_for_currency), F.data.startswith("currency_"))
-async def fsm_currency(callback: CallbackQuery, state: FSMContext):
-    lang = await get_lang(callback.from_user.id) or "en"
-    currency = callback.data.replace("currency_", "")
-    await state.update_data(currency=currency)
-    await state.set_state(AddSubscription.waiting_for_billing_cycle)
-    await callback.message.edit_text(t(lang, "add_step4_ok").format(currency), parse_mode="HTML", reply_markup=build_billing_cycle_keyboard(lang))
-    await callback.answer()
-
-@router.callback_query(StateFilter(AddSubscription.waiting_for_billing_cycle), F.data.startswith("cycle_"))
-async def fsm_billing_cycle(callback: CallbackQuery, state: FSMContext):
-    lang = await get_lang(callback.from_user.id) or "en"
-    cycle = callback.data.replace("cycle_", "")
-    await state.update_data(billing_cycle=cycle)
-    await state.set_state(AddSubscription.waiting_for_payment_date)
-    suggested_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
-    await callback.message.edit_text(t(lang, "add_step5_ok").format(t(lang, cycle), suggested_date), parse_mode="HTML")
-    await callback.answer()
-
-@router.message(StateFilter(AddSubscription.waiting_for_payment_date))
-async def fsm_payment_date(message: Message, state: FSMContext):
-    lang = await get_lang(message.from_user.id) or "en"
-    try:
-        payment_date = datetime.strptime(message.text.strip(), "%Y-%m-%d")
-        if payment_date.date() < datetime.now().date():
-            await message.answer(t(lang, "add_error_date_past"), reply_markup=build_cancel_keyboard(lang))
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button callbacks"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    lang = get_user_language(user_id)
+    
+    if query.data.startswith('lang_'):
+        # Language selection
+        new_lang = query.data.split('_')[1]
+        set_user_language(user_id, new_lang)
+        lang = new_lang
+        
+        await query.edit_message_text(
+            get_text('language_changed', lang)
+        )
+        
+        # Show main menu again
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    get_text('subscribe_btn', lang),
+                    callback_data='subscribe'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('my_subscription', lang),
+                    callback_data='my_subscription'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('open_webapp', lang),
+                    web_app=WebAppInfo(url=WEBAPP_URL)
+                )
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.reply_text(
+            get_text('main_menu', lang),
+            reply_markup=reply_markup
+        )
+    
+    elif query.data == 'subscribe':
+        # Show subscription plans
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    get_text('plan_monthly', lang),
+                    callback_data='plan_monthly'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('plan_yearly', lang),
+                    callback_data='plan_yearly'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('plan_lifetime', lang),
+                    callback_data='plan_lifetime'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('back_btn', lang),
+                    callback_data='back_to_menu'
+                )
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            get_text('choose_plan', lang),
+            reply_markup=reply_markup
+        )
+    
+    elif query.data.startswith('plan_'):
+        # Show payment options
+        plan_type = query.data.split('_')[1]
+        
+        # Get plan details
+        plans = {
+            'monthly': {'price': 10, 'days': 30},
+            'yearly': {'price': 100, 'days': 365},
+            'lifetime': {'price': 500, 'days': 36500}
+        }
+        
+        plan = plans.get(plan_type)
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    get_text('pay_crypto', lang),
+                    callback_data=f'pay_crypto_{plan_type}'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('pay_webapp', lang),
+                    web_app=WebAppInfo(url=f"{WEBAPP_URL}?plan={plan_type}")
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('back_btn', lang),
+                    callback_data='subscribe'
+                )
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            get_text('plan_details', lang).format(
+                plan=get_text(f'plan_{plan_type}', lang),
+                price=plan['price'],
+                days=plan['days']
+            ),
+            reply_markup=reply_markup
+        )
+    
+    elif query.data.startswith('pay_crypto_'):
+        # Show crypto payment instructions
+        plan_type = query.data.split('_')[2]
+        plans = {
+            'monthly': {'price': 10, 'days': 30},
+            'yearly': {'price': 100, 'days': 365},
+            'lifetime': {'price': 500, 'days': 36500}
+        }
+        
+        plan = plans.get(plan_type)
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    get_text('confirm_payment', lang),
+                    callback_data=f'confirm_{plan_type}'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('back_btn', lang),
+                    callback_data=f'plan_{plan_type}'
+                )
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            get_text('crypto_payment_info', lang).format(
+                wallet=CRYPTO_WALLET_ADDRESS,
+                amount=plan['price']
+            ),
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    
+    elif query.data.startswith('confirm_'):
+        # Confirm payment (in production, verify on blockchain)
+        plan_type = query.data.split('_')[1]
+        plans = {
+            'monthly': {'price': 10, 'days': 30},
+            'yearly': {'price': 100, 'days': 365},
+            'lifetime': {'price': 500, 'days': 36500}
+        }
+        
+        plan = plans.get(plan_type)
+        
+        # Add pending payment to database
+        db.add_pending_payment(user_id, plan_type, plan['price'])
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    get_text('back_to_menu', lang),
+                    callback_data='back_to_menu'
+                )
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            get_text('payment_pending', lang),
+            reply_markup=reply_markup
+        )
+        
+        # Notify admins
+        for admin_id in ADMIN_IDS:
+            try:
+                admin_keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "✅ Approve",
+                            callback_data=f'approve_{user_id}_{plan_type}'
+                        ),
+                        InlineKeyboardButton(
+                            "❌ Reject",
+                            callback_data=f'reject_{user_id}'
+                        )
+                    ]
+                ]
+                admin_markup = InlineKeyboardMarkup(admin_keyboard)
+                
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"New payment request:\nUser: {query.from_user.username or user_id}\nPlan: {plan_type}\nAmount: ${plan['price']}",
+                    reply_markup=admin_markup
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify admin {admin_id}: {e}")
+    
+    elif query.data.startswith('approve_'):
+        # Admin approves payment
+        if user_id not in ADMIN_IDS:
+            await query.answer("Unauthorized", show_alert=True)
             return
-    except ValueError:
-        await message.answer(t(lang, "add_error_date_format"), parse_mode="HTML", reply_markup=build_cancel_keyboard(lang))
-        return
-
-    data = await state.get_data()
-    try:
-        sub_id = await add_subscription(message.from_user.id, data['service_name'], data['cost'], data['currency'], data['billing_cycle'], message.text.strip())
-    except Exception as e:
-        logger.error(f"Failed to add: {e}")
-        await message.answer(t(lang, "add_error_save"), reply_markup=build_reply_keyboard(lang))
-        await state.clear()
-        return
-
-    await state.clear()
-    await message.answer(t(lang, "add_success").format(service=data['service_name'], cost=data['cost'], currency=data['currency'], cycle=t(lang, data['billing_cycle']), date=message.text.strip(), id=sub_id), parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
-
-# LIST, TOTAL, DELETE Handlers (Simplified for brevity, same logic as before)
-@router.message(Command("list"))
-async def cmd_list(message: Message):
-    lang = await ensure_language(message) or "en"
-    await show_subscriptions(message, message.from_user.id, lang, edit=False)
-
-async def show_subscriptions(message: Message, user_id: int, lang: str, edit: bool):
-    subs = await get_user_subscriptions(user_id)
-    kb = build_main_inline_keyboard(lang)
-    if not subs:
-        text = t(lang, "list_empty")
-    else:
-        text = t(lang, "list_title").format(count=len(subs)) + "\n\n".join([format_subscription_card(s, i+1, lang) for i, s in enumerate(subs)])
+        
+        parts = query.data.split('_')
+        target_user_id = int(parts[1])
+        plan_type = parts[2]
+        
+        plans = {
+            'monthly': {'price': 10, 'days': 30},
+            'yearly': {'price': 100, 'days': 365},
+            'lifetime': {'price': 500, 'days': 36500}
+        }
+        
+        plan = plans.get(plan_type)
+        
+        # Activate subscription
+        expiry_date = datetime.now() + timedelta(days=plan['days'])
+        db.activate_subscription(target_user_id, plan_type, expiry_date)
+        
+        await query.edit_message_text(
+            f"✅ Payment approved for user {target_user_id}"
+        )
+        
+        # Notify user
+        try:
+            target_lang = get_user_language(target_user_id)
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=get_text('subscription_activated', target_lang).format(
+                    plan=get_text(f'plan_{plan_type}', target_lang),
+                    expiry=expiry_date.strftime('%Y-%m-%d')
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify user {target_user_id}: {e}")
     
-    if edit: await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
-
-@router.message(Command("total"))
-async def cmd_total(message: Message):
-    lang = await ensure_language(message) or "en"
-    await show_total(message, message.from_user.id, lang, edit=False)
-
-async def show_total(message: Message, user_id: int, lang: str, edit: bool):
-    subs = await get_user_subscriptions(user_id)
-    kb = build_main_inline_keyboard(lang)
-    if not subs:
-        text = t(lang, "total_empty")
-    else:
-        # Calc logic similar to original file
-        currency_totals = {}
-        for sub in subs:
-            curr = sub['currency']
-            if curr not in currency_totals: currency_totals[curr] = {"monthly": 0.0, "yearly": 0.0}
-            if sub['billing_cycle'] == 'monthly':
-                currency_totals[curr]["monthly"] += sub['cost']
-                currency_totals[curr]["yearly"] += sub['cost'] * 12
-            elif sub['billing_cycle'] == 'yearly':
-                currency_totals[curr]["monthly"] += sub['cost'] / 12
-                currency_totals[curr]["yearly"] += sub['cost']
-        text = t(lang, "total_title") + "\n" + t(lang, "total_count").format(len(subs)) + "\n"
-        for curr, totals in currency_totals.items():
-            text += f"┌─── <b>{curr}</b> ───\n│ {t(lang, 'total_monthly')}: <b>{totals['monthly']:.2f} {curr}</b>\n│ {t(lang, 'total_yearly')}: <b>{totals['yearly']:.2f} {curr}</b>\n└─────────────────\n\n"
+    elif query.data.startswith('reject_'):
+        # Admin rejects payment
+        if user_id not in ADMIN_IDS:
+            await query.answer("Unauthorized", show_alert=True)
+            return
+        
+        target_user_id = int(query.data.split('_')[1])
+        
+        db.remove_pending_payment(target_user_id)
+        
+        await query.edit_message_text(
+            f"❌ Payment rejected for user {target_user_id}"
+        )
+        
+        # Notify user
+        try:
+            target_lang = get_user_language(target_user_id)
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=get_text('payment_rejected', target_lang)
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify user {target_user_id}: {e}")
     
-    if edit: await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
+    elif query.data == 'my_subscription':
+        # Show user's subscription status
+        subscription = db.get_subscription(user_id)
+        
+        if subscription and subscription['is_active']:
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        get_text('back_to_menu', lang),
+                        callback_data='back_to_menu'
+                    )
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                get_text('subscription_info', lang).format(
+                    plan=subscription['plan_type'],
+                    expiry=subscription['expiry_date']
+                ),
+                reply_markup=reply_markup
+            )
+        else:
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        get_text('subscribe_btn', lang),
+                        callback_data='subscribe'
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        get_text('back_to_menu', lang),
+                        callback_data='back_to_menu'
+                    )
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                get_text('no_subscription', lang),
+                reply_markup=reply_markup
+            )
+    
+    elif query.data == 'back_to_menu':
+        # Back to main menu
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    get_text('language_ar', lang), 
+                    callback_data='lang_ar'
+                ),
+                InlineKeyboardButton(
+                    get_text('language_en', lang), 
+                    callback_data='lang_en'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('subscribe_btn', lang),
+                    callback_data='subscribe'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('my_subscription', lang),
+                    callback_data='my_subscription'
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    get_text('open_webapp', lang),
+                    web_app=WebAppInfo(url=WEBAPP_URL)
+                )
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            get_text('main_menu', lang),
+            reply_markup=reply_markup
+        )
 
-@router.message(Command("delete"))
-async def cmd_delete(message: Message):
-    lang = await ensure_language(message) or "en"
-    await show_delete_menu(message, message.from_user.id, lang, edit=False)
 
-async def show_delete_menu(message: Message, user_id: int, lang: str, edit: bool):
-    subs = await get_user_subscriptions(user_id)
-    if not subs:
-        text = t(lang, "delete_empty")
-        kb = build_main_inline_keyboard(lang)
-    else:
-        text = t(lang, "delete_title")
-        kb = build_delete_keyboard(subs, lang)
-    if edit: await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
-
-@router.callback_query(F.data.startswith("del_"))
-async def cb_delete_confirm(callback: CallbackQuery):
-    lang = await get_lang(callback.from_user.id) or "en"
-    sub_id = int(callback.data.replace("del_", ""))
-    subs = await get_user_subscriptions(callback.from_user.id)
-    sub = next((s for s in subs if s['id'] == sub_id), None)
-    if not sub:
-        await callback.answer(t(lang, "delete_not_found"), show_alert=True)
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin panel"""
+    user_id = update.effective_user.id
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Unauthorized")
         return
-    text = t(lang, "delete_confirm").format(sub['service_name'], sub['cost'], sub['currency'])
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=build_confirm_delete_keyboard(sub_id, lang))
-    await callback.answer()
+    
+    stats = db.get_statistics()
+    
+    text = f"""📊 Bot Statistics:
+    
+Total Users: {stats['total_users']}
+Active Subscriptions: {stats['active_subscriptions']}
+Pending Payments: {stats['pending_payments']}
+Total Revenue: ${stats['total_revenue']}
+"""
+    
+    await update.message.reply_text(text)
 
-@router.callback_query(F.data.startswith("confirm_del_"))
-async def cb_delete_execute(callback: CallbackQuery):
-    lang = await get_lang(callback.from_user.id) or "en"
-    sub_id = int(callback.data.replace("confirm_del_", ""))
-    if await delete_subscription(sub_id, callback.from_user.id):
-        await callback.message.edit_text(t(lang, "delete_success"), parse_mode="HTML", reply_markup=build_main_inline_keyboard(lang))
-    else:
-        await callback.message.edit_text(t(lang, "delete_error"), parse_mode="HTML", reply_markup=build_main_inline_keyboard(lang))
-    await callback.answer()
 
-@router.message(F.text.in_(["➕ Add Subscription", "➕ إضافة اشتراك"]))
-async def reply_btn_add(message: Message, state: FSMContext):
-    await cmd_add(message, state)
+async def webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle data from Web App"""
+    if update.message.web_app_data:
+        data = update.message.web_app_data.data
+        user_id = update.effective_user.id
+        lang = get_user_language(user_id)
+        
+        await update.message.reply_text(
+            get_text('webapp_data_received', lang)
+        )
 
-@router.message(F.text.in_(["📋 My Subscriptions", "📋 اشتراكاتي"]))
-async def reply_btn_list(message: Message):
-    await cmd_list(message)
 
-@router.message(F.text.in_(["💰 Calculate Total", "💰 حساب التكاليف"]))
-async def reply_btn_total(message: Message):
-    await cmd_total(message)
+def main():
+    """Start the bot"""
+    # Create application
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, webapp_data))
+    
+    # Start bot
+    logger.info("Bot started...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
-@router.message(F.text.in_(["⚙️ Settings / Language", "⚙️ الإعدادات / اللغة"]))
-async def reply_btn_settings(message: Message):
-    await cmd_language(message)
+
+if __name__ == '__main__':
+    main()
     
