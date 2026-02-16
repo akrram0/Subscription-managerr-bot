@@ -1,0 +1,3 @@
+cd bot
+npm init -y
+npm install grammy @grammyjs/i18n dotenv cors express
