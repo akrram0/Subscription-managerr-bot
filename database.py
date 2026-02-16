@@ -151,3 +151,38 @@ async def update_next_payment_date(sub_id: int, new_date: str):
             (new_date, sub_id)
         )
         await db.commit()
+
+
+        # ── Global Stats for Master Bot ──────────────────────────────
+
+async def get_global_stats() -> dict:
+    """Get global statistics for the Master Bot."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # 1. Total active subscriptions
+        cursor = await db.execute("SELECT COUNT(*) FROM subscriptions WHERE is_active = 1")
+        total_active = (await cursor.fetchone())[0]
+
+        # 2. Subscriptions expiring in the next 3 days
+        target_date = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM subscriptions WHERE is_active = 1 AND next_payment_date <= ?", 
+            (target_date,)
+        )
+        expiring_soon = (await cursor.fetchone())[0]
+
+        # 3. Total Monthly Value (Estimated)
+        cursor = await db.execute("SELECT cost, billing_cycle FROM subscriptions WHERE is_active = 1")
+        rows = await cursor.fetchall()
+        total_revenue = 0
+        for cost, cycle in rows:
+            if cycle == 'monthly':
+                total_revenue += cost
+            elif cycle == 'yearly':
+                total_revenue += cost / 12
+        
+        return {
+            "active": total_active,
+            "expiring": expiring_soon,
+            "revenue": round(total_revenue, 2)
+        }
+        
