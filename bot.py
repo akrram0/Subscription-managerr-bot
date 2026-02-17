@@ -1,19 +1,18 @@
 """
-Subscription Management Bot — v3.0 (Final Fixes)
-================================================
-Based on Code Review & Log Analysis:
-1. [span_7](start_span)[span_8](start_span)Fixed Reminder System (Sends alerts & Auto-advances dates)[span_7](end_span)[span_8](end_span)
-2. [span_9](start_span)Fixed Total Calculation (Groups by Currency/Cycle)[span_9](end_span)
-3. [span_10](start_span)Fixed Delete Confirmation (Shows real data)[span_10](end_span)
-4. [span_11](start_span)[span_12](start_span)Added Input Validation & Error Handling[span_11](end_span)[span_12](end_span)
-5. [span_13](start_span)[span_14](start_span)Added Missing Handlers (/language, /help, Settings Button)[span_13](end_span)[span_14](end_span)
+Subscription Management Bot — v3.0 (Clean & Fixed)
+==================================================
+Fixes based on Code Review:
+- Fixed SyntaxErrors from previous copies.
+- Implemented Reminder System (Alerts + Auto-advance).
+- Fixed Total Calculation (Currency grouping).
+- Fixed Delete Confirmation (Shows real data).
+- Added Input Validation.
 """
 
 import asyncio
 import logging
 import io
 import os
-import sys
 import json
 from datetime import datetime, timedelta
 
@@ -21,7 +20,7 @@ from datetime import datetime, timedelta
 # 📊 Matplotlib for Charts
 # ---------------------------------------------------------
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg')  # Essential for running on servers
 import matplotlib.pyplot as plt
 
 from aiogram import Bot, Dispatcher, Router, F
@@ -47,10 +46,9 @@ from locales import t
 # ============================================================
 # CONFIGURATION
 # ============================================================
-# [span_15](start_span)CRITICAL FIX: Prefer Environment Variable, fallback to hardcoded (Change this!)[span_15](end_span)
+# استخدام متغيرات البيئة للأمان، مع الاحتفاظ بالتوكن الحالي كاحتياطي
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8304071879:AAHP5ST3SHAoxTGbTJ1yVG58VjbOWvQ343c")
-# WEB APP URL
-WEB_APP_URL = "https://glistening-gaufre-57bb50.netlify.app/index.html"
+WEB_APP_URL = os.getenv("WEB_APP_URL", "https://glistening-gaufre-57bb50.netlify.app/index.html")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -62,7 +60,7 @@ logger = logging.getLogger(__name__)
 CURRENCIES = ["USD", "SAR", "EGP", "AED", "KWD", "QAR", "BHD", "OMR", "JOD", "EUR", "GBP"]
 
 # ============================================================
-# FSM STATES
+# STATES
 # ============================================================
 class AddSubscription(StatesGroup):
     waiting_for_service_name = State()
@@ -78,22 +76,25 @@ def generate_pie_chart(subs, lang):
     if not subs: return None
     labels = []
     sizes = []
+    
+    # تجميع البيانات للرسم البياني
     for sub in subs:
         cost = sub['cost']
-        # Normalize yearly to monthly for chart visualization
+        # توحيد التكلفة إلى شهرية للعرض البياني فقط
         if sub['billing_cycle'] == 'yearly': 
             cost = cost / 12
+        
         labels.append(sub['service_name'])
         sizes.append(cost)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    colors = ['#3390ec', '#e05050', '#7ec87e', '#f0a050', '#8b5cf6', '#d4621e']
-    
     try:
+        fig, ax = plt.subplots(figsize=(6, 6))
+        colors = ['#3390ec', '#e05050', '#7ec87e', '#f0a050', '#8b5cf6', '#d4621e']
+        
         ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, 
                colors=colors[:len(labels)], textprops={'color': "black", 'weight': 'bold'})
         
-        title = "Monthly Distribution (Approx)" if lang != 'ar' else "توزيع المصاريف الشهرية (تقريبي)"
+        title = "Monthly Expense Distribution" if lang != 'ar' else "توزيع المصاريف الشهرية (تقريبي)"
         ax.set_title(title, fontsize=14, pad=20)
         
         buf = io.BytesIO()
@@ -102,7 +103,7 @@ def generate_pie_chart(subs, lang):
         plt.close(fig)
         return buf
     except Exception as e:
-        logger.error(f"Chart generation failed: {e}")
+        logger.error(f"Failed to generate chart: {e}")
         return None
 
 # ============================================================
@@ -189,7 +190,7 @@ async def ensure_language(message_or_callback, state: FSMContext = None):
     return lang
 
 def format_subscription_card(sub, index, lang):
-    [span_16](start_span)"""Refined subscription card format[span_16](end_span)"""
+    """Refined subscription card format based on review"""
     cycle_text = t(lang, sub['billing_cycle'])
     try:
         payment_date = datetime.strptime(sub['next_payment_date'], "%Y-%m-%d")
@@ -213,18 +214,18 @@ def format_subscription_card(sub, index, lang):
     )
 
 # ============================================================
-# ROUTER
+# ROUTER & HANDLERS
 # ============================================================
 router = Router()
 
-# ── 1. WEB APP HANDLER ──
+# ── WEB APP DATA HANDLER ──
 @router.message(F.content_type == "web_app_data")
 async def web_app_data_handler(message: Message):
     lang = await get_lang(message.from_user.id)
     try:
         data = json.loads(message.web_app_data.data)
-        # [span_17](start_span)Add basic validation[span_17](end_span)
-        if float(data['cost']) < 0: raise ValueError("Negative Cost")
+        # Validation
+        if float(data['cost']) <= 0: raise ValueError("Invalid cost")
         
         sub_id = await add_subscription(
             message.from_user.id, data['service_name'], float(data['cost']),
@@ -237,39 +238,39 @@ async def web_app_data_handler(message: Message):
             cycle=cycle_text, date=data['next_payment_date'], id=sub_id
         )
         await message.answer(success_msg, parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
-        # [span_18](start_span)Log action[span_18](end_span)
-        logger.info(f"User {message.from_user.id} added sub via WebApp: {data['service_name']}")
+        logger.info(f"User {message.from_user.id} added sub via WebApp.")
     except Exception as e:
         logger.error(f"WebApp Error: {e}")
         await message.answer(t(lang, "add_error_save"), parse_mode="HTML")
 
-# ── 2. MANUAL ADD (FSM) ──
+# ── MANUAL ADD COMMAND (/add) ──
 @router.message(Command("add"))
 async def cmd_add_manual(message: Message, state: FSMContext):
     lang = await ensure_language(message)
     await state.set_state(AddSubscription.waiting_for_service_name)
     await message.answer(
         f"{t(lang, 'add_title')}\n\n{t(lang, 'add_step1')}",
-        parse_mode="HTML", 
+        parse_mode="HTML",
         reply_markup=build_cancel_keyboard(lang)
     )
 
 @router.message(StateFilter(AddSubscription.waiting_for_service_name))
 async def process_service_name(message: Message, state: FSMContext):
     lang = await get_lang(message.from_user.id)
-    [span_19](start_span)if not message.text or len(message.text) > 100: # Added validation[span_19](end_span)
+    text = message.text.strip()
+    if not text or len(text) > 50:
         await message.answer(t(lang, "add_error_name"), parse_mode="HTML")
         return
-    await state.update_data(service_name=message.text)
+    await state.update_data(service_name=text)
     await state.set_state(AddSubscription.waiting_for_cost)
-    await message.answer(t(lang, "add_step2_ok").format(message.text), parse_mode="HTML", reply_markup=build_cancel_keyboard(lang))
+    await message.answer(t(lang, "add_step2_ok").format(text), parse_mode="HTML", reply_markup=build_cancel_keyboard(lang))
 
 @router.message(StateFilter(AddSubscription.waiting_for_cost))
 async def process_cost(message: Message, state: FSMContext):
     lang = await get_lang(message.from_user.id)
     try:
         cost = float(message.text.replace(",", "."))
-        [span_20](start_span)if cost <= 0: raise ValueError # Validation[span_20](end_span)
+        if cost <= 0: raise ValueError
         await state.update_data(cost=cost)
         await state.set_state(AddSubscription.waiting_for_currency)
         await message.answer(t(lang, "add_step3_ok").format(cost), parse_mode="HTML", reply_markup=build_currency_keyboard())
@@ -298,16 +299,16 @@ async def process_date(message: Message, state: FSMContext):
     lang = await get_lang(message.from_user.id)
     try:
         date_obj = datetime.strptime(message.text.strip(), "%Y-%m-%d")
-        # [span_21](start_span)Validation for past dates[span_21](end_span)
         if date_obj.date() < datetime.now().date():
-             await message.answer(t(lang, "add_error_date_past"), parse_mode="HTML")
-             return
-             
+            await message.answer(t(lang, "add_error_date_past"), parse_mode="HTML")
+            return
+            
         data = await state.get_data()
         sub_id = await add_subscription(
             message.from_user.id, data['service_name'], data['cost'],
             data['currency'], data['billing_cycle'], message.text.strip()
         )
+        
         cycle_text = t(lang, data['billing_cycle'])
         success_msg = t(lang, "add_success").format(
             service=data['service_name'], cost=data['cost'], currency=data['currency'],
@@ -315,17 +316,20 @@ async def process_date(message: Message, state: FSMContext):
         )
         await state.clear()
         await message.answer(success_msg, parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
+        
     except ValueError:
         await message.answer(t(lang, "add_error_date_format"), parse_mode="HTML")
 
-# ── COMMANDS & MENUS ──
+# ── GENERAL COMMANDS ──
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    lang = await ensure_language(message)
+    lang = await get_user_language(message.from_user.id)
+    # Fix: Force language selection if not set
     if not lang:
-        await message.answer("🌐 <b>Choose Language:</b>", parse_mode="HTML", reply_markup=build_language_keyboard())
+        await ensure_user_exists(message.from_user.id)
+        await message.answer("🌐 <b>Choose Language / اختر اللغة:</b>", parse_mode="HTML", reply_markup=build_language_keyboard())
     else:
         await message.answer(t(lang, "welcome"), parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
 
@@ -336,9 +340,8 @@ async def cb_lang(callback: CallbackQuery):
     await callback.message.answer(t(lang, "welcome"), parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
     await callback.answer()
 
-# [span_22](start_span)FIX: Added missing /language and /help handlers[span_22](end_span)
 @router.message(Command("language"))
-[span_23](start_span)@router.message(F.text.in_(["⚙️ Settings / Language", "⚙️ الإعدادات / اللغة"])) # Added Button Handler[span_23](end_span)
+@router.message(F.text.in_(["⚙️ Settings / Language", "⚙️ الإعدادات / اللغة"]))
 async def settings_handler(message: Message):
     lang = await get_lang(message.from_user.id)
     await message.answer(t(lang, "settings_title"), parse_mode="HTML", reply_markup=build_settings_keyboard(lang))
@@ -352,6 +355,8 @@ async def help_handler(event):
     kb = build_main_inline_keyboard(lang)
     if isinstance(event, CallbackQuery): await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
     else: await msg.answer(text, parse_mode="HTML", reply_markup=kb)
+
+# ── LIST & TOTAL ──
 
 @router.message(Command("list"))
 @router.callback_query(F.data == "action_list")
@@ -373,7 +378,6 @@ async def list_subs(event):
     if isinstance(event, CallbackQuery): await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
     else: await msg.answer(text, parse_mode="HTML", reply_markup=kb)
 
-# [span_24](start_span)FIX: Total Calculation Grouped by Currency[span_24](end_span)
 @router.message(Command("total"))
 @router.callback_query(F.data == "action_total")
 @router.message(F.text.in_(["💰 Calculate Total", "💰 حساب التكاليف"]))
@@ -385,10 +389,11 @@ async def total_subs(event):
     kb = build_main_inline_keyboard(lang)
 
     if not subs:
-        await msg.answer(t(lang, "total_empty"), parse_mode="HTML", reply_markup=kb)
+        if isinstance(event, CallbackQuery): await msg.edit_text(t(lang, "total_empty"), parse_mode="HTML", reply_markup=kb)
+        else: await msg.answer(t(lang, "total_empty"), parse_mode="HTML", reply_markup=kb)
         return
 
-    # Proper Grouping
+    # Fix: Group by currency and cycle
     monthly_totals = {}
     yearly_totals = {}
 
@@ -413,13 +418,14 @@ async def total_subs(event):
 
     # Chart
     chart_buf = generate_pie_chart(subs, lang)
-    
     if chart_buf:
         if isinstance(event, CallbackQuery): await msg.delete()
         await msg.answer_photo(BufferedInputFile(chart_buf.read(), filename="chart.png"), caption=text, parse_mode="HTML", reply_markup=kb)
     else:
         if isinstance(event, CallbackQuery): await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
         else: await msg.answer(text, parse_mode="HTML", reply_markup=kb)
+
+# ── DELETE ──
 
 @router.message(Command("delete"))
 @router.callback_query(F.data == "action_delete")
@@ -430,17 +436,21 @@ async def delete_menu(event):
     subs = await get_user_subscriptions(user_id)
     
     if not subs:
-        await msg.answer(t(lang, "delete_empty"), parse_mode="HTML")
+        txt = t(lang, "delete_empty")
+        if isinstance(event, CallbackQuery): await msg.edit_text(txt, parse_mode="HTML")
+        else: await msg.answer(txt, parse_mode="HTML")
     else:
-        await msg.answer(t(lang, "delete_title"), parse_mode="HTML", reply_markup=build_delete_keyboard(subs, lang))
+        kb = build_delete_keyboard(subs, lang)
+        txt = t(lang, "delete_title")
+        if isinstance(event, CallbackQuery): await msg.edit_text(txt, parse_mode="HTML", reply_markup=kb)
+        else: await msg.answer(txt, parse_mode="HTML", reply_markup=kb)
 
-# [span_25](start_span)FIX: Delete shows actual data[span_25](end_span)
 @router.callback_query(F.data.startswith("del_"))
 async def confirm_del(callback: CallbackQuery):
     lang = await get_lang(callback.from_user.id)
     sub_id = int(callback.data.split("_")[1])
     
-    # Fetch real details
+    # Fix: Fetch sub details to show real name/cost
     subs = await get_user_subscriptions(callback.from_user.id)
     sub = next((s for s in subs if s['id'] == sub_id), None)
     
@@ -463,7 +473,7 @@ async def exec_del(callback: CallbackQuery):
 async def cancel_op(event, state: FSMContext):
     await state.clear()
     msg = event.message if isinstance(event, CallbackQuery) else event
-    [span_26](start_span)lang = await get_lang(event.from_user.id) # Fix Language in cancel[span_26](end_span)
+    lang = await get_lang(event.from_user.id)
     await msg.answer(t(lang, "cancel_ok"), parse_mode="HTML", reply_markup=build_reply_keyboard(lang))
     if isinstance(event, CallbackQuery): await event.answer()
     
@@ -473,9 +483,10 @@ async def back_handler(callback: CallbackQuery):
     await callback.message.edit_text(t(lang, "welcome"), parse_mode="HTML", reply_markup=build_main_inline_keyboard(lang))
 
 # ============================================================
-# [span_27](start_span)[span_28](start_span)AUTOMATED REMINDERS & AUTO-ADVANCE[span_27](end_span)[span_28](end_span)
+# AUTOMATED REMINDERS & AUTO-ADVANCE
 # ============================================================
 async def send_reminders(bot: Bot):
+    """Checks for due subscriptions, sends alerts, and auto-renews dates."""
     logger.info("Running scheduled reminder check...")
     
     # 1. Send Reminders
@@ -499,7 +510,7 @@ async def send_reminders(bot: Bot):
         except Exception as e:
             logger.error(f"Error checking {days}-day reminders: {e}")
 
-    # 2. [span_29](start_span)Auto-Advance Past Due Dates[span_29](end_span)
+    # 2. Auto-Advance Past Due Dates
     try:
         past_due = await get_past_due_subscriptions()
         for sub in past_due:
@@ -514,9 +525,6 @@ async def send_reminders(bot: Bot):
             
             await update_next_payment_date(sub['id'], new_date.strftime("%Y-%m-%d"))
             logger.info(f"Auto-advanced sub {sub['id']} to {new_date.strftime('%Y-%m-%d')}")
-            
-            # Optional: Notify user
-            # await bot.send_message(sub['user_id'], f"Renewed {sub['service_name']} to {new_date.date()}")
     except Exception as e:
         logger.error(f"Error auto-advancing: {e}")
 
@@ -529,7 +537,7 @@ async def set_bot_commands(bot: Bot):
         BotCommand(command="add", description="Add Subscription"),
         BotCommand(command="list", description="List Subscriptions"),
         BotCommand(command="total", description="Expenses & Charts"),
-        [span_30](start_span)BotCommand(command="language", description="Change Language"), # Added[span_30](end_span)
+        BotCommand(command="language", description="Change Language"),
         BotCommand(command="help", description="Help"),
     ]
     await bot.set_my_commands(commands)
@@ -546,7 +554,7 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     
-    [span_31](start_span)await set_bot_commands(bot) # Set commands[span_31](end_span)
+    await set_bot_commands(bot)
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(send_reminders, 'interval', hours=24, args=[bot], id='reminders_job')
