@@ -1,21 +1,29 @@
 """
-Subscription Management & Reminders Bot — v2.2 (Menu Button Integrated)
-=======================================================================
+Subscription Management & Reminders Bot — v2.3 (With Charts)
+============================================================
 Updates:
-- Added 'Menu Button' support (opens Mini App directly from the text field).
+- Added 'Matplotlib' for visualizing expenses (Pie Charts).
+- Improved /total command to show charts.
 """
 
 import asyncio
 import logging
-import json
+import io
 from datetime import datetime, timedelta
+
+# ---------------------------------------------------------
+# 📊 NEW: Matplotlib for Charts
+# ---------------------------------------------------------
+import matplotlib
+matplotlib.use('Agg')  # Essential for running on servers like Railway
+import matplotlib.pyplot as plt
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardButton, InlineKeyboardMarkup,
     ReplyKeyboardMarkup, KeyboardButton,
-    BotCommand, WebAppInfo, MenuButtonWebApp  # <--- Added MenuButtonWebApp
+    BotCommand, WebAppInfo, MenuButtonWebApp, BufferedInputFile
 )
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -34,9 +42,7 @@ from locales import t, TEXTS
 # CONFIGURATION
 # ============================================================
 BOT_TOKEN = "8304071879:AAHP5ST3SHAoxTGbTJ1yVG58VjbOWvQ343c"
-# الرابط الصحيح لأن اسم الملف في GitHub هو index.html
-WEB_APP_URL = "https://glistening-gaufre-57bb50.netlify.app/index.html?v=5"
-
+WEB_APP_URL = "https://glistening-gaufre-57bb50.netlify.app/index.html" # تأكد أن الرابط هنا هو الصحيح
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -46,6 +52,56 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 CURRENCIES = ["USD", "SAR", "EGP", "AED", "KWD", "QAR", "BHD", "OMR", "JOD", "EUR", "GBP"]
+
+# ============================================================
+# CHART GENERATOR HELPER 📊
+# ============================================================
+def generate_pie_chart(subs, lang):
+    """Generates a pie chart image buffer from subscriptions."""
+    if not subs:
+        return None
+
+    # Prepare data: Group costs by Service Name
+    labels = []
+    sizes = []
+    
+    # We will simply take the cost number. 
+    # NOTE: If you have mixed currencies (USD + SAR), this simple chart 
+    # treats them as numbers (10 USD = 10 SAR visually). 
+    # For a simple version, this is acceptable.
+    
+    for sub in subs:
+        # Convert yearly to monthly for fair comparison
+        cost = sub['cost']
+        if sub['billing_cycle'] == 'yearly':
+            cost = cost / 12
+        
+        labels.append(sub['service_name'])
+        sizes.append(cost)
+
+    # Create the chart
+    fig, ax = plt.subplots(figsize=(6, 6))
+    
+    # Colors suitable for dark/light themes
+    colors = ['#3390ec', '#e05050', '#7ec87e', '#f0a050', '#8b5cf6', '#d4621e']
+    
+    # Draw pie
+    wedges, texts, autotexts = ax.pie(
+        sizes, labels=labels, autopct='%1.1f%%',
+        startangle=90, colors=colors[:len(labels)],
+        textprops={'color': "black", 'weight': 'bold'}
+    )
+    
+    # Add title based on language
+    title = "Monthly Expense Distribution" if lang != 'ar' else "توزيع المصاريف الشهرية"
+    ax.set_title(title, fontsize=14, pad=20)
+
+    # Save to buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', transparent=False)
+    buf.seek(0)
+    plt.close(fig)
+    return buf
 
 # ============================================================
 # KEYBOARD BUILDERS
@@ -271,10 +327,12 @@ async def cb_list(callback: CallbackQuery):
     await show_subscriptions(callback.message, callback.from_user.id, lang, edit=True)
     await callback.answer()
 
+# ⚠️ UPDATED: Total handler now shows Charts
 @router.callback_query(F.data == "action_total")
 async def cb_total(callback: CallbackQuery):
     lang = await get_lang(callback.from_user.id) or "en"
-    await show_total(callback.message, callback.from_user.id, lang, edit=True)
+    # Call the same function as the command, but indicating it's a callback
+    await show_total(callback.message, callback.from_user.id, lang, edit=False) 
     await callback.answer()
 
 @router.callback_query(F.data == "action_delete")
@@ -320,6 +378,7 @@ async def show_subscriptions(message: Message, user_id: int, lang: str, edit: bo
     if edit: await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
+# ⚠️ UPDATED: Total Calculation with Chart Support
 @router.message(Command("total"))
 async def cmd_total(message: Message):
     lang = await ensure_language(message) or "en"
@@ -327,12 +386,23 @@ async def cmd_total(message: Message):
 
 async def show_total(message: Message, user_id: int, lang: str, edit: bool = False):
     subs = await get_user_subscriptions(user_id)
+
     if not subs:
         text = t(lang, "total_empty")
         kb = build_main_inline_keyboard(lang)
-        if edit: await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-        else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
+        if edit and isinstance(message, Message): 
+             # Callbacks can edit, Messages cannot edit themselves easily without sending new
+             # For simplicity, we just answer new message if it's a command, edit if callback
+             pass # Logic handled below
+        
+        if edit:
+            try: await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+            except: await message.answer(text, parse_mode="HTML", reply_markup=kb)
+        else:
+            await message.answer(text, parse_mode="HTML", reply_markup=kb)
         return
+
+    # 1. Calculate Text Stats
     currency_totals = {}
     for sub in subs:
         curr = sub['currency']
@@ -343,13 +413,34 @@ async def show_total(message: Message, user_id: int, lang: str, edit: bool = Fal
         elif sub['billing_cycle'] == 'yearly':
             currency_totals[curr]["monthly"] += sub['cost'] / 12
             currency_totals[curr]["yearly"] += sub['cost']
+    
     text = t(lang, "total_title") + "\n" + t(lang, "total_count").format(len(subs)) + "\n"
     for curr, totals in currency_totals.items():
         text += (f"┌─── <b>{curr}</b> ───\n│ {t(lang, 'total_monthly')}: <b>{totals['monthly']:.2f} {curr}</b>\n"
                  f"│ {t(lang, 'total_yearly')}: <b>{totals['yearly']:.2f} {curr}</b>\n└─────────────────\n\n")
+
+    # 2. Generate Chart
+    chart_buf = generate_pie_chart(subs, lang)
+    
     kb = build_main_inline_keyboard(lang)
-    if edit: await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
+    
+    # If we have a chart, send it as a photo
+    if chart_buf:
+        # We cannot "edit" a text message into a photo message directly easily.
+        # So we delete the old message (if callback) and send a new photo.
+        if edit:
+            await message.delete()
+        
+        await message.answer_photo(
+            photo=BufferedInputFile(chart_buf.read(), filename="chart.png"),
+            caption=text,
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+    else:
+        # Fallback to text only
+        if edit: await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 @router.message(Command("delete"))
 async def cmd_delete(message: Message):
@@ -408,42 +499,10 @@ async def reply_btn_settings(message: Message):
     await message.answer(t(lang, "settings_title"), parse_mode="HTML", reply_markup=build_settings_keyboard(lang))
 
 # ============================================================
-# AUTOMATED REMINDERS
+# MENU BUTTON SETUP
 # ============================================================
-async def send_reminders(bot: Bot):
-    logger.info("Running scheduled reminder check...")
-    reminder_configs = [(1, "reminder_1day", "urgency_1"), (3, "reminder_3days", "urgency_3"), (7, "reminder_7days", "urgency_7")]
-    for days, time_key, urgency_key in reminder_configs:
-        try:
-            subs = await get_due_subscriptions(days)
-            for sub in subs:
-                try:
-                    lang = await get_user_language(sub['user_id']) or "en"
-                    time_text, urgency = t(lang, time_key), t(lang, urgency_key)
-                    title = t(lang, "reminder_title").format(urgency=urgency)
-                    body = t(lang, "reminder_body").format(
-                        service=sub['service_name'], cost=sub['cost'], currency=sub['currency'],
-                        date=sub['next_payment_date'], time_text=time_text
-                    )
-                    await bot.send_message(chat_id=sub['user_id'], text=f"{title}\n\n{body}", parse_mode="HTML")
-                except Exception as e: logger.error(f"Failed to send reminder to {sub['user_id']}: {e}")
-        except Exception as e: logger.error(f"Error checking {days}-day reminders: {e}")
-    try:
-        past_due = await get_past_due_subscriptions()
-        for sub in past_due:
-            old_date = datetime.strptime(sub['next_payment_date'], "%Y-%m-%d")
-            new_date = old_date + timedelta(days=30 if sub['billing_cycle'] == 'monthly' else 365)
-            await update_next_payment_date(sub['id'], new_date.strftime("%Y-%m-%d"))
-    except Exception as e: logger.error(f"Error auto-advancing subscriptions: {e}")
-
-# ============================================================
-# MENU BUTTON SETUP (THIS IS THE FIX)
-# ============================================================
-
 async def set_bot_commands(bot: Bot):
     """Set the bot's command menu AND the main WebApp button."""
-    
-    # 1. Set the standard slash commands (like /list, /help)
     en_commands = [
         BotCommand(command="start", description="Start the bot"),
         BotCommand(command="list", description="View all subscriptions"),
@@ -453,18 +512,13 @@ async def set_bot_commands(bot: Bot):
         BotCommand(command="help", description="Usage guide"),
     ]
     await bot.set_my_commands(en_commands)
-
-    # 2. SET THE CHAT MENU BUTTON (This makes the WebApp button appear next to input)
-    # This overrides the blue "Menu" button with your App button
     await bot.set_chat_menu_button(
         menu_button=MenuButtonWebApp(
-            text="➕ Add Sub",  # النص الذي سيظهر على الزر
+            text="➕ Add Sub",
             web_app=WebAppInfo(url=WEB_APP_URL)
         )
     )
-    
     logger.info("Bot commands and Menu Button set successfully.")
-
 
 # ============================================================
 # MAIN
@@ -476,14 +530,13 @@ async def main():
     dp = Dispatcher(storage=storage)
     dp.include_router(router)
     
-    # Set menu button on startup
     await set_bot_commands(bot)
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(send_reminders, 'interval', hours=24, args=[bot], id='daily_reminders', replace_existing=True)
     scheduler.start()
 
-    logger.info("Bot v2.2 is starting...")
+    logger.info("Bot v2.3 is starting...")
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
