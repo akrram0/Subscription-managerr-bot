@@ -10,6 +10,8 @@ Upgraded with:
 
 Tech: aiogram 3.x, aiosqlite, apscheduler
 """
+import json
+from aiogram.types import WebAppInfo # أضف هذا السطر
 
 import asyncio
 import logging
