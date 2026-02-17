@@ -3,696 +3,345 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>إضافة اشتراك</title>
+    <title>Add Subscription</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --tg-bg: var(--tg-theme-bg-color, #111008);
-            --tg-text: var(--tg-theme-text-color, #f2ede4);
-            --tg-hint: var(--tg-theme-hint-color, #7a7060);
-            --tg-btn: var(--tg-theme-button-color, #c95c1a);
-            --tg-btn-text: var(--tg-theme-button-text-color, #fff);
-            --tg-secondary: var(--tg-theme-secondary-bg-color, #1c1a12);
-
+            /* Default Dark Theme (Will be overridden by Telegram params) */
+            --tg-bg: #111008;
+            --tg-text: #f2ede4;
+            --tg-hint: #7a7060;
+            --tg-btn: #c95c1a;
+            --tg-btn-text: #fff;
+            --tg-secondary: #1c1a12;
+            
+            /* App Specific Colors */
             --accent: #d4621e;
-            --accent-light: #f07830;
             --accent-glow: rgba(212, 98, 30, 0.35);
-            --accent-2: #f0a050;
-            --accent-2-glow: rgba(240, 160, 80, 0.18);
-            --circuit-line: rgba(212, 98, 30, 0.25);
-            --surface: rgba(255, 248, 235, 0.04);
-            --surface-2: rgba(255, 248, 235, 0.07);
-            --border: rgba(212, 98, 30, 0.18);
-            --border-focus: rgba(212, 98, 30, 0.7);
+            --surface: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.1);
+            --border-focus: #d4621e;
             --danger: #e05050;
-            --success: #7ec87e;
-            --cream: #f2ede4;
-            --radius: 14px;
-            --radius-sm: 8px;
+            --success: #4ade80;
+            --radius: 16px;
+            --font-ar: 'IBM Plex Sans Arabic', sans-serif;
+            --font-en: 'Inter', sans-serif;
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            -webkit-tap-highlight-color: transparent;
+        /* Light Mode Overrides */
+        body.light-mode {
+            --tg-bg: #ffffff;
+            --tg-text: #000000;
+            --tg-hint: #707579;
+            --tg-secondary: #f4f4f5;
+            --surface: #f4f4f5;
+            --border: #e4e4e7;
+            --accent-glow: rgba(212, 98, 30, 0.15);
         }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
         body {
-            font-family: 'IBM Plex Sans Arabic', -apple-system, sans-serif;
+            font-family: var(--font-ar);
             background: var(--tg-bg);
             color: var(--tg-text);
-            min-height: 100dvh;
-            overflow-x: hidden;
-            position: relative;
-        }
-
-        /* === BACKGROUND CIRCUIT === */
-        body::before {
-            content: '';
-            position: fixed;
-            inset: 0;
-            background:
-                radial-gradient(ellipse 70% 50% at 90% -5%, rgba(212,98,30,0.14) 0%, transparent 60%),
-                radial-gradient(ellipse 50% 40% at -10% 100%, rgba(240,160,80,0.08) 0%, transparent 55%);
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        body::after {
-            content: '';
-            position: fixed;
-            inset: 0;
-            background-image:
-                repeating-linear-gradient(0deg, transparent, transparent 48px, rgba(212,98,30,0.055) 48px, rgba(212,98,30,0.055) 49px),
-                repeating-linear-gradient(90deg, transparent, transparent 48px, rgba(212,98,30,0.055) 48px, rgba(212,98,30,0.055) 49px);
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        .container {
-            position: relative;
-            z-index: 1;
+            min-height: 100vh;
             padding: 20px 16px 100px;
-            max-width: 480px;
-            margin: 0 auto;
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
-        /* === HEADER === */
-        .header {
-            text-align: center;
-            margin-bottom: 28px;
-            animation: fadeSlideDown 0.5s ease both;
-        }
+        body.lang-en { font-family: var(--font-en); direction: ltr; }
 
-        .header-icon {
-            width: 72px;
-            height: 72px;
-            margin: 0 auto 14px;
-            background: #111008;
-            border: 1.5px solid rgba(212,98,30,0.5);
-            border-radius: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow:
-                0 0 0 4px rgba(212,98,30,0.08),
-                0 8px 32px rgba(212,98,30,0.25),
-                inset 0 1px 0 rgba(255,255,255,0.06);
-            animation: iconPulse 3s ease-in-out infinite;
-            position: relative;
-            overflow: hidden;
+        /* HEADER */
+        .header { text-align: center; margin-bottom: 24px; }
+        .header-icon { 
+            font-size: 40px; margin-bottom: 10px; 
+            filter: drop-shadow(0 0 10px var(--accent-glow));
         }
+        .header h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+        .header p { font-size: 14px; color: var(--tg-hint); }
 
-        /* Circuit S logo SVG inside icon */
-        .header-icon svg {
-            width: 44px;
-            height: 44px;
-        }
-
-        @keyframes iconPulse {
-            0%, 100% { box-shadow: 0 0 0 4px rgba(212,98,30,0.08), 0 8px 32px rgba(212,98,30,0.25), inset 0 1px 0 rgba(255,255,255,0.06); }
-            50% { box-shadow: 0 0 0 6px rgba(212,98,30,0.14), 0 8px 48px rgba(212,98,30,0.4), inset 0 1px 0 rgba(255,255,255,0.08); }
-        }
-
-        .header h1 {
-            font-size: 18px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            background: linear-gradient(135deg, var(--cream) 40%, var(--accent-2));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .header p {
-            font-size: 13px;
-            color: var(--tg-hint);
-            margin-top: 4px;
-        }
-
-        /* === CARD === */
+        /* CARDS */
         .card {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 20px;
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            border-radius: var(--radius);
+            padding: 16px;
             margin-bottom: 12px;
-            animation: fadeSlideUp 0.5s ease both;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.03);
         }
 
-        .card:nth-child(1) { animation-delay: 0.05s; }
-        .card:nth-child(2) { animation-delay: 0.1s; }
-        .card:nth-child(3) { animation-delay: 0.15s; }
-
-        .card-title {
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1.2px;
-            color: var(--accent-light);
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .card-title::before {
-            content: '';
-            display: inline-block;
-            width: 3px;
-            height: 12px;
-            background: linear-gradient(to bottom, var(--accent), var(--accent-2));
-            border-radius: 2px;
-        }
-
-        /* === FORM GROUPS === */
-        .form-group {
-            margin-bottom: 14px;
-        }
-
-        .form-group:last-child {
-            margin-bottom: 0;
-        }
+        .form-group { margin-bottom: 16px; }
+        .form-group:last-child { margin-bottom: 0; }
 
         label {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
+            display: block;
+            font-size: 13px;
             font-weight: 500;
             color: var(--tg-hint);
-            margin-bottom: 7px;
-            letter-spacing: 0.3px;
-        }
-
-        label .icon {
-            font-size: 14px;
-            opacity: 0.7;
-        }
-
-        .input-wrapper {
-            position: relative;
+            margin-bottom: 8px;
         }
 
         input, select {
             width: 100%;
             padding: 12px 14px;
-            background: rgba(255, 255, 255, 0.04);
+            background: var(--tg-bg);
             border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
+            border-radius: 12px;
             color: var(--tg-text);
-            font-family: 'IBM Plex Sans Arabic', sans-serif;
             font-size: 15px;
-            font-weight: 400;
-            transition: all 0.2s ease;
-            -webkit-appearance: none;
-            appearance: none;
             outline: none;
+            transition: 0.2s;
+            appearance: none;
+        }
+
+        body.light-mode input, body.light-mode select {
+            background: #fff;
         }
 
         input:focus, select:focus {
             border-color: var(--border-focus);
-            background: rgba(212, 98, 30, 0.06);
             box-shadow: 0 0 0 3px var(--accent-glow);
         }
 
-        input::placeholder {
-            color: rgba(242,237,228,0.2);
-        }
-
-        /* Custom select arrow */
-        .select-wrapper {
-            position: relative;
-        }
-
-        .select-wrapper::after {
-            content: '▾';
-            position: absolute;
-            left: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--tg-hint);
-            font-size: 12px;
-            pointer-events: none;
-        }
-
-        /* Date input */
-        input[type="date"] {
-            color-scheme: dark;
-        }
-
-        /* Number input */
-        input[type="number"]::-webkit-outer-spin-button,
-        input[type="number"]::-webkit-inner-spin-button {
-            -webkit-appearance: none;
-        }
-
-        /* === ROW === */
-        .row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        /* === SERVICE PRESETS === */
-        .presets-label {
-            font-size: 11px;
-            color: var(--tg-hint);
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-
-        .presets {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 7px;
-            margin-bottom: 14px;
-        }
-
-        .preset-chip {
-            padding: 5px 11px;
-            background: rgba(255,255,255,0.04);
+        /* PRESETS */
+        .presets { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 16px; scrollbar-width: none; }
+        .presets::-webkit-scrollbar { display: none; }
+        
+        .chip {
+            padding: 6px 12px;
+            background: var(--tg-bg);
             border: 1px solid var(--border);
             border-radius: 20px;
-            font-size: 12px;
-            font-family: 'IBM Plex Sans Arabic', sans-serif;
-            color: var(--tg-hint);
-            cursor: pointer;
-            transition: all 0.18s ease;
-            white-space: nowrap;
-        }
-
-        .preset-chip:hover, .preset-chip.active {
-            background: var(--accent-glow);
-            border-color: var(--accent);
-            color: var(--cream);
-        }
-
-        /* === COST DISPLAY === */
-        .cost-preview {
-            display: none;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 14px;
-            background: rgba(212, 98, 30, 0.07);
-            border: 1px solid rgba(212, 98, 30, 0.2);
-            border-radius: var(--radius-sm);
-            margin-top: 10px;
-        }
-
-        .cost-preview.visible {
-            display: flex;
-        }
-
-        .cost-preview .label {
-            font-size: 12px;
-            color: var(--tg-hint);
-        }
-
-        .cost-preview .amount {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--accent-light);
-        }
-
-        /* === CYCLE TOGGLE === */
-        .cycle-toggle {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            overflow: hidden;
-            padding: 3px;
-            gap: 3px;
-        }
-
-        .cycle-option {
-            padding: 10px;
-            text-align: center;
-            cursor: pointer;
-            border-radius: 6px;
             font-size: 13px;
-            font-weight: 500;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: 0.2s;
+            color: var(--tg-text);
+        }
+        
+        body.light-mode .chip { background: #fff; }
+
+        .chip.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        /* ROW LAYOUT */
+        .row { display: flex; gap: 12px; }
+        .col { flex: 1; }
+
+        /* TOGGLE */
+        .toggle-container {
+            display: flex;
+            background: var(--tg-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 2px;
+        }
+        body.light-mode .toggle-container { background: #fff; }
+
+        .toggle-btn {
+            flex: 1;
+            padding: 8px;
+            text-align: center;
+            font-size: 13px;
+            border-radius: 8px;
+            cursor: pointer;
             color: var(--tg-hint);
-            transition: all 0.2s ease;
-            font-family: 'IBM Plex Sans Arabic', sans-serif;
+            transition: 0.2s;
+        }
+        .toggle-btn.active {
+            background: var(--accent);
+            color: white;
+            font-weight: 600;
         }
 
-        .cycle-option.active {
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
-            color: #fff;
-            box-shadow: 0 2px 12px var(--accent-glow);
-        }
-
-        /* === SAVE BUTTON === */
+        /* MAIN BUTTON */
         .btn-container {
             position: fixed;
-            bottom: 0;
-            right: 0;
-            left: 0;
-            padding: 12px 16px 20px;
-            background: linear-gradient(to top, var(--tg-bg) 70%, transparent);
-            z-index: 10;
+            bottom: 0; left: 0; right: 0;
+            padding: 16px;
+            background: linear-gradient(to top, var(--tg-bg) 80%, transparent);
+            z-index: 100;
         }
 
         .btn-save {
             width: 100%;
-            max-width: 480px;
-            margin: 0 auto;
-            display: block;
-            padding: 15px 24px;
-            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-            color: #fff;
+            padding: 14px;
+            background: var(--tg-btn);
+            color: var(--tg-btn-text);
             border: none;
-            border-radius: var(--radius);
+            border-radius: 14px;
             font-size: 16px;
-            font-weight: 600;
-            font-family: 'IBM Plex Sans Arabic', sans-serif;
-            cursor: pointer;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 4px 24px var(--accent-glow);
-            transition: all 0.2s ease;
-            letter-spacing: 0.2px;
-        }
-
-        .btn-save::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 60%);
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-
-        .btn-save:active {
-            transform: scale(0.97);
-            box-shadow: 0 2px 12px var(--accent-glow);
-        }
-
-        .btn-save:active::before {
-            opacity: 1;
-        }
-
-        .btn-save.loading {
-            pointer-events: none;
-            opacity: 0.7;
-        }
-
-        .btn-save .btn-icon {
-            margin-left: 8px;
-        }
-
-        /* === STATUS INDICATOR === */
-        .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--accent-light);
-            display: inline-block;
-            margin-left: 6px;
-            box-shadow: 0 0 6px var(--accent-glow);
-            animation: blink 2s ease-in-out infinite;
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-        }
-
-        /* === ANIMATIONS === */
-        @keyframes fadeSlideDown {
-            from { opacity: 0; transform: translateY(-16px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes fadeSlideUp {
-            from { opacity: 0; transform: translateY(16px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* === REQUIRED FIELD === */
-        .required {
-            color: var(--danger);
-            margin-right: 2px;
-        }
-
-        /* === SUCCESS STATE === */
-        .success-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.85);
-            z-index: 100;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            gap: 16px;
-            backdrop-filter: blur(10px);
-        }
-
-        .success-overlay.show {
-            display: flex;
-        }
-
-        .success-icon {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 36px;
-            box-shadow: 0 0 40px var(--accent-glow);
-            animation: successPop 0.4s cubic-bezier(0.34,1.56,0.64,1);
-        }
-
-        @keyframes successPop {
-            from { transform: scale(0); opacity: 0; }
-            to { transform: scale(1); opacity: 1; }
-        }
-
-        .success-text {
-            font-size: 18px;
             font-weight: 700;
-            color: #fff;
-            text-align: center;
+            cursor: pointer;
+            box-shadow: 0 4px 15px var(--accent-glow);
+            transition: transform 0.1s;
         }
 
-        .success-sub {
-            font-size: 13px;
-            color: var(--tg-hint);
-        }
+        .btn-save:active { transform: scale(0.98); }
 
-        /* === DIVIDER === */
-        .divider {
-            height: 1px;
-            background: var(--border);
-            margin: 14px 0;
-        }
+        /* ANIMATIONS */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .card { animation: fadeIn 0.4s ease-out forwards; }
+        .card:nth-child(2) { animation-delay: 0.1s; }
+        .card:nth-child(3) { animation-delay: 0.2s; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-
-        <!-- Header -->
-        <div class="header">
-            <div class="header-icon">
-                <!-- Circuit S Logo recreated from brand -->
-                <svg viewBox="0 0 44 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <!-- Vertical rails -->
-                    <rect x="17" y="2" width="3" height="8" rx="1" fill="#1a1a1a"/>
-                    <rect x="24" y="2" width="3" height="8" rx="1" fill="#d4621e"/>
-                    <!-- Top node dot -->
-                    <circle cx="22" cy="3.5" r="2" fill="#d4621e" stroke="#111008" stroke-width="0.8"/>
-                    <!-- S shape top curve -->
-                    <path d="M28 10 Q34 10 34 17 Q34 24 22 24 Q10 24 10 31 Q10 38 16 38" stroke="#1a1a1a" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-                    <path d="M30 10 Q36 10 36 17 Q36 26 22 26 Q8 26 8 33 Q8 40 14 40" stroke="#d4621e" stroke-width="2" stroke-linecap="round" fill="none"/>
-                    <!-- Middle node dot -->
-                    <circle cx="22" cy="27" r="2" fill="#d4621e" stroke="#111008" stroke-width="0.8"/>
-                    <!-- S bottom -->
-                    <path d="M16 40 Q10 40 10 46" stroke="#1a1a1a" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-                    <path d="M14 40 Q8 42 8 46" stroke="#d4621e" stroke-width="2" stroke-linecap="round" fill="none"/>
-                    <!-- Bottom verticals -->
-                    <rect x="17" y="46" width="3" height="8" rx="1" fill="#1a1a1a"/>
-                    <rect x="24" y="46" width="3" height="8" rx="1" fill="#d4621e"/>
-                    <!-- Bottom node dot -->
-                    <circle cx="22" cy="52.5" r="2" fill="#d4621e" stroke="#111008" stroke-width="0.8"/>
-                    <!-- Side connector lines -->
-                    <line x1="34" y1="13" x2="40" y2="13" stroke="#d4621e" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
-                    <line x1="4" y1="43" x2="10" y2="43" stroke="#d4621e" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
-                    <circle cx="41" cy="13" r="1.5" fill="#d4621e" opacity="0.7"/>
-                    <circle cx="3" cy="43" r="1.5" fill="#d4621e" opacity="0.7"/>
-                </svg>
-            </div>
-            <h1>Subscription Manager</h1>
-            <p>أضف اشتراكاً جديداً <span class="status-dot"></span></p>
-        </div>
-
-        <!-- Card 1: Service Info -->
-        <div class="card">
-            <div class="card-title">معلومات الخدمة</div>
-
-            <div class="presets-label">اختيار سريع</div>
-            <div class="presets">
-                <button class="preset-chip" onclick="setPreset('Netflix', 15.99)">🎬 Netflix</button>
-                <button class="preset-chip" onclick="setPreset('Spotify', 9.99)">🎵 Spotify</button>
-                <button class="preset-chip" onclick="setPreset('YouTube Premium', 13.99)">▶️ YouTube</button>
-                <button class="preset-chip" onclick="setPreset('ChatGPT Plus', 20)">🤖 ChatGPT</button>
-                <button class="preset-chip" onclick="setPreset('iCloud', 2.99)">☁️ iCloud</button>
-                <button class="preset-chip" onclick="setPreset('Adobe CC', 54.99)">🎨 Adobe</button>
-            </div>
-
-            <div class="form-group">
-                <label><span class="icon">📌</span> اسم الخدمة <span class="required">*</span></label>
-                <input type="text" id="service_name" placeholder="مثال: Netflix" autocomplete="off">
-            </div>
-        </div>
-
-        <!-- Card 2: Cost & Currency -->
-        <div class="card">
-            <div class="card-title">التكلفة والعملة</div>
-
-            <div class="row">
-                <div class="form-group">
-                    <label><span class="icon">💰</span> المبلغ <span class="required">*</span></label>
-                    <input type="number" id="cost" step="0.01" placeholder="0.00" min="0" oninput="updatePreview()">
-                </div>
-                <div class="form-group">
-                    <label><span class="icon">🌐</span> العملة</label>
-                    <div class="select-wrapper">
-                        <select id="currency" onchange="updatePreview()">
-                            <option value="USD">USD ($)</option>
-                            <option value="SAR">SAR (ر.س)</option>
-                            <option value="MAD">MAD (د.م)</option>
-                            <option value="EGP">EGP (ج.م)</option>
-                            <option value="EUR">EUR (€)</option>
-                            <option value="AED">AED (د.إ)</option>
-                            <option value="KWD">KWD (د.ك)</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            <div class="cost-preview" id="costPreview">
-                <span class="label">إجمالي سنوي</span>
-                <span class="amount" id="yearlyAmount">—</span>
-            </div>
-        </div>
-
-        <!-- Card 3: Schedule -->
-        <div class="card">
-            <div class="card-title">جدول الدفع</div>
-
-            <div class="form-group">
-                <label><span class="icon">🔄</span> دورة الدفع</label>
-                <div class="cycle-toggle">
-                    <div class="cycle-option active" id="cycle-monthly" onclick="setCycle('monthly')">شهري</div>
-                    <div class="cycle-option" id="cycle-yearly" onclick="setCycle('yearly')">سنوي</div>
-                </div>
-                <input type="hidden" id="cycle" value="monthly">
-            </div>
-
-            <div class="divider"></div>
-
-            <div class="form-group">
-                <label><span class="icon">📅</span> تاريخ الدفع القادم <span class="required">*</span></label>
-                <input type="date" id="date">
-            </div>
-        </div>
-
+    <div class="header">
+        <div class="header-icon">💎</div>
+        <h1 id="lbl_title">اشتراك جديد</h1>
+        <p id="lbl_subtitle">أضف تفاصيل اشتراكك لتتبعه</p>
     </div>
 
-    <!-- Save Button -->
+    <div class="presets">
+        <div class="chip" onclick="setPreset('Netflix', 15.99)">Netflix</div>
+        <div class="chip" onclick="setPreset('Spotify', 9.99)">Spotify</div>
+        <div class="chip" onclick="setPreset('YouTube', 13.99)">YouTube</div>
+        <div class="chip" onclick="setPreset('ChatGPT', 20.00)">ChatGPT</div>
+        <div class="chip" onclick="setPreset('iCloud', 2.99)">iCloud</div>
+        <div class="chip" onclick="setPreset('Shahid', 8.99)">Shahid</div>
+    </div>
+
+    <div class="card">
+        <div class="form-group">
+            <label id="lbl_service">اسم الخدمة</label>
+            <input type="text" id="service_name" placeholder="...">
+        </div>
+
+        <div class="row">
+            <div class="col">
+                <div class="form-group">
+                    <label id="lbl_cost">التكلفة</label>
+                    <input type="number" id="cost" step="0.01" placeholder="0.00">
+                </div>
+            </div>
+            <div class="col">
+                <div class="form-group">
+                    <label id="lbl_currency">العملة</label>
+                    <select id="currency">
+                        <option value="USD">USD ($)</option>
+                        <option value="SAR">SAR (ر.س)</option>
+                        <option value="AED">AED (د.إ)</option>
+                        <option value="EGP">EGP (ج.م)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="MAD">MAD (د.م)</option>
+                        <option value="KWD">KWD (د.ك)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="form-group">
+            <label id="lbl_cycle">دورة الدفع</label>
+            <div class="toggle-container">
+                <div class="toggle-btn active" id="cycle_monthly" onclick="setCycle('monthly')">شهري</div>
+                <div class="toggle-btn" id="cycle_yearly" onclick="setCycle('yearly')">سنوي</div>
+            </div>
+            <input type="hidden" id="cycle" value="monthly">
+        </div>
+
+        <div class="form-group">
+            <label id="lbl_date">تاريخ الدفع القادم</label>
+            <input type="date" id="date">
+        </div>
+    </div>
+
     <div class="btn-container">
-        <button class="btn-save" id="saveBtn" onclick="sendData()">
-            <span class="btn-icon">✦</span> حفظ الاشتراك
-        </button>
-    </div>
-
-    <!-- Success Overlay -->
-    <div class="success-overlay" id="successOverlay">
-        <div class="success-icon">✓</div>
-        <div class="success-text">تم الحفظ بنجاح!</div>
-        <div class="success-sub">جاري الإغلاق...</div>
+        <button class="btn-save" id="btn_save" onclick="sendData()">حفظ الاشتراك</button>
     </div>
 
     <script>
-        // === TELEGRAM INIT ===
-        let tg = window.Telegram?.WebApp;
-
-        if (tg) {
-            tg.expand();
-            tg.ready();
-
-            // Apply Telegram theme
-            const isDark = tg.colorScheme === 'dark';
-            if (!isDark) {
-                document.documentElement.style.setProperty('--surface', 'rgba(0,0,0,0.04)');
-                document.documentElement.style.setProperty('--border', 'rgba(0,0,0,0.08)');
+        // === TRANSLATIONS ===
+        const texts = {
+            ar: {
+                title: "اشتراك جديد",
+                subtitle: "أضف تفاصيل اشتراكك لتتبعه",
+                service: "اسم الخدمة",
+                cost: "التكلفة",
+                currency: "العملة",
+                cycle: "دورة الدفع",
+                date: "تاريخ الدفع القادم",
+                save: "حفظ الاشتراك",
+                monthly: "شهري",
+                yearly: "سنوي",
+                error_fields: "يرجى ملء جميع الحقول!",
+                error_cost: "التكلفة يجب أن تكون أكبر من 0",
+                placeholder_service: "مثال: Netflix"
+            },
+            en: {
+                title: "New Subscription",
+                subtitle: "Add details to track your expenses",
+                service: "Service Name",
+                cost: "Cost",
+                currency: "Currency",
+                cycle: "Billing Cycle",
+                date: "Next Payment Date",
+                save: "Save Subscription",
+                monthly: "Monthly",
+                yearly: "Yearly",
+                error_fields: "Please fill all fields!",
+                error_cost: "Cost must be greater than 0",
+                placeholder_service: "e.g. Netflix"
             }
+        };
+
+        // === INIT TELEGRAM ===
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+
+        // 1. Detect Language
+        const userLang = (tg.initDataUnsafe?.user?.language_code || 'en').startsWith('ar') ? 'ar' : 'en';
+        const t = texts[userLang];
+
+        // 2. Apply Translations
+        document.body.className = `lang-${userLang}`;
+        document.documentElement.lang = userLang;
+        document.documentElement.dir = userLang === 'ar' ? 'rtl' : 'ltr';
+
+        document.getElementById('lbl_title').innerText = t.title;
+        document.getElementById('lbl_subtitle').innerText = t.subtitle;
+        document.getElementById('lbl_service').innerText = t.service;
+        document.getElementById('lbl_cost').innerText = t.cost;
+        document.getElementById('lbl_currency').innerText = t.currency;
+        document.getElementById('lbl_cycle').innerText = t.cycle;
+        document.getElementById('lbl_date').innerText = t.date;
+        document.getElementById('btn_save').innerText = t.save;
+        document.getElementById('cycle_monthly').innerText = t.monthly;
+        document.getElementById('cycle_yearly').innerText = t.yearly;
+        document.getElementById('service_name').placeholder = t.placeholder_service;
+
+        // 3. Detect Dark/Light Mode
+        if (tg.colorScheme === 'light') {
+            document.body.classList.add('light-mode');
         }
 
-        // === DEFAULT DATE ===
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
-        document.getElementById('date').value = `${yyyy}-${mm}-${dd}`;
+        // Set Today's Date
+        document.getElementById('date').valueAsDate = new Date();
 
-        // === PRESETS ===
+        // === FUNCTIONS ===
         function setPreset(name, cost) {
             document.getElementById('service_name').value = name;
             document.getElementById('cost').value = cost;
-
+            
             // Highlight chip
-            document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
             event.target.classList.add('active');
-
-            updatePreview();
         }
 
-        // === CYCLE TOGGLE ===
-        function setCycle(val) {
-            document.getElementById('cycle').value = val;
-            document.getElementById('cycle-monthly').classList.toggle('active', val === 'monthly');
-            document.getElementById('cycle-yearly').classList.toggle('active', val === 'yearly');
-            updatePreview();
+        function setCycle(type) {
+            document.getElementById('cycle').value = type;
+            document.getElementById('cycle_monthly').className = `toggle-btn ${type === 'monthly' ? 'active' : ''}`;
+            document.getElementById('cycle_yearly').className = `toggle-btn ${type === 'yearly' ? 'active' : ''}`;
         }
 
-        // === COST PREVIEW ===
-        const currencySymbols = {
-            USD: '$', SAR: 'ر.س', MAD: 'د.م', EGP: 'ج.م',
-            EUR: '€', AED: 'د.إ', KWD: 'د.ك'
-        };
-
-        function updatePreview() {
-            const cost = parseFloat(document.getElementById('cost').value);
-            const currency = document.getElementById('currency').value;
-            const cycle = document.getElementById('cycle').value;
-            const preview = document.getElementById('costPreview');
-            const yearlyEl = document.getElementById('yearlyAmount');
-
-            if (cost && cost > 0) {
-                const yearly = cycle === 'monthly' ? cost * 12 : cost;
-                const symbol = currencySymbols[currency] || currency;
-                yearlyEl.textContent = `${yearly.toFixed(2)} ${symbol}`;
-                preview.classList.add('visible');
-            } else {
-                preview.classList.remove('visible');
-            }
-        }
-
-        // === SEND DATA ===
         function sendData() {
             const name = document.getElementById('service_name').value.trim();
             const cost = document.getElementById('cost').value;
@@ -700,81 +349,26 @@
             const cycle = document.getElementById('cycle').value;
             const date = document.getElementById('date').value;
 
-            // Validation
             if (!name || !cost || !date) {
-                if (tg) {
-                    tg.showPopup({
-                        title: '⚠️ حقول مطلوبة',
-                        message: 'يرجى ملء جميع الحقول الإلزامية (اسم الخدمة، التكلفة، التاريخ)',
-                        buttons: [{ type: 'ok' }]
-                    });
-                } else {
-                    alert('يرجى ملء جميع الحقول');
-                }
+                tg.showPopup({title: '⚠️', message: t.error_fields});
                 return;
             }
 
             if (parseFloat(cost) <= 0) {
-                if (tg) {
-                    tg.showPopup({
-                        title: '⚠️ قيمة غير صحيحة',
-                        message: 'يجب أن تكون التكلفة أكبر من صفر',
-                        buttons: [{ type: 'ok' }]
-                    });
-                }
+                tg.showPopup({title: '⚠️', message: t.error_cost});
                 return;
             }
 
             const data = {
                 service_name: name,
-                cost: parseFloat(parseFloat(cost).toFixed(2)),
+                cost: parseFloat(cost),
                 currency: currency,
                 billing_cycle: cycle,
                 next_payment_date: date
             };
 
-            // Show loading
-            const btn = document.getElementById('saveBtn');
-            btn.classList.add('loading');
-            btn.innerHTML = '⏳ جاري الحفظ...';
-
-            // Small delay for UX polish, then send
-            setTimeout(() => {
-                if (tg) {
-                    // Show success briefly
-                    document.getElementById('successOverlay').classList.add('show');
-                    setTimeout(() => {
-                        tg.sendData(JSON.stringify(data));
-                    }, 800);
-                } else {
-                    // Dev mode fallback
-                    console.log('Data to send:', data);
-                    document.getElementById('successOverlay').classList.add('show');
-                    setTimeout(() => {
-                        document.getElementById('successOverlay').classList.remove('show');
-                        btn.classList.remove('loading');
-                        btn.innerHTML = '<span class="btn-icon">✦</span> حفظ الاشتراك';
-                    }, 2000);
-                }
-            }, 300);
+            tg.sendData(JSON.stringify(data));
         }
-
-        // Deselect preset chip when user types manually
-        document.getElementById('service_name').addEventListener('input', function() {
-            if (!document.querySelectorAll('.preset-chip.active').length) return;
-            const chips = document.querySelectorAll('.preset-chip');
-            const val = this.value.trim();
-            let matched = false;
-            chips.forEach(c => {
-                const chipName = c.textContent.replace(/^[^\w]+ /, '').trim();
-                if (val.toLowerCase() === chipName.toLowerCase()) {
-                    c.classList.add('active');
-                    matched = true;
-                } else {
-                    c.classList.remove('active');
-                }
-            });
-        });
     </script>
 </body>
 </html>
