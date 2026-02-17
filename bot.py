@@ -34,7 +34,8 @@ from locales import t, TEXTS
 # CONFIGURATION
 # ============================================================
 BOT_TOKEN = "8304071879:AAHP5ST3SHAoxTGbTJ1yVG58VjbOWvQ343c"
-WEB_APP_URL = "https://glistening-gaufre-57bb50.netlify.app/v=3"
+# اجعل الرابط يشير إلى index.html لأن هذا هو اسم الملف الموجود في Netlify
+WEB_APP_URL = "https://glistening-gaufre-57bb50.netlify.app/index.html?v=4"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
