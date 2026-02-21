@@ -1,6 +1,0 @@
-aiogram==3.7.0
-aiosqlite==0.20.0
-apscheduler==3.10.4
-matplotlib==3.9.0
-
-
