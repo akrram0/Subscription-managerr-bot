@@ -14,7 +14,6 @@ import storage
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-MY_CHAT_ID = int(os.environ["MY_CHAT_ID"])
 
 # Conversation states
 ADD_NAME, ADD_PRICE, ADD_PERIOD, ADD_DATE = range(4)
@@ -23,15 +22,6 @@ REMOVE_PICK = range(7, 8)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-def only_me(func):
-    """Decorator: ignore anyone who isn't you."""
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if update.effective_user.id != MY_CHAT_ID:
-            return
-        return await func(update, context)
-    return wrapper
-
 
 def fmt(sub: dict) -> str:
     return (
@@ -60,7 +50,6 @@ def validate_date(text: str) -> str | None:
 
 # ── /start ───────────────────────────────────────────────────────────────────
 
-@only_me
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 *Subscription Manager*\n\n"
@@ -74,7 +63,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-@only_me
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ Cancelled.")
@@ -83,7 +71,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── /add flow ────────────────────────────────────────────────────────────────
 
-@only_me
 async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if args and len(args) >= 4:
@@ -142,7 +129,6 @@ async def add_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── /list ────────────────────────────────────────────────────────────────────
 
-@only_me
 async def list_subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subs = storage.get_all()
     if not subs:
@@ -154,7 +140,6 @@ async def list_subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── /total ───────────────────────────────────────────────────────────────────
 
-@only_me
 async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subs = storage.get_all()
     if not subs:
@@ -172,7 +157,6 @@ async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── /remove flow ─────────────────────────────────────────────────────────────
 
-@only_me
 async def remove_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subs = storage.get_all()
     if not subs:
@@ -199,7 +183,6 @@ async def remove_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── /edit flow ───────────────────────────────────────────────────────────────
 
-@only_me
 async def edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subs = storage.get_all()
     if not subs:
@@ -288,7 +271,7 @@ async def edit_value_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def send_reminders(app: Application):
     for sub in storage.due_in_days(3):
         await app.bot.send_message(
-            chat_id=MY_CHAT_ID,
+            chat_id=int(os.environ["MY_CHAT_ID"]),
             text=f"⏰ *Reminder!* {sub['name']} is due in 3 days!\n💰 ${sub['price']:.2f}",
             parse_mode="Markdown"
         )
